@@ -335,13 +335,20 @@ func (v *visitor) selectorName(call *ast.CallExpr) string {
 // namesForExcludeCheck will return a list of fully-qualified function names
 // from a function call that can be used to check against the exclusion list.
 //
-// If a function call is against a local function (like "myFunc()") then no
-// names are returned. If the function is package-qualified (like "fmt.Printf()")
-// then just that function's fullName is returned.
+// If a function call is against a local function (like "myFunc()") then the
+// function object's fully-qualified name is returned. If the function is
+// package-qualified (like "fmt.Printf()") then just that function's fullName
+// is returned.
 //
 // Otherwise, we walk through all the potentially embedded interfaces of the receiver
 // to collect a list of type-qualified function names that we will check.
 func (v *visitor) namesForExcludeCheck(call *ast.CallExpr) []string {
+	if ident, ok := baseCallExpr(call.Fun).(*ast.Ident); ok {
+		if fn, ok := v.typesInfo.ObjectOf(ident).(*types.Func); ok && fn.Pkg() != nil {
+			return []string{fn.FullName()}
+		}
+	}
+
 	sel, fn, ok := v.selectorAndFunc(call)
 	if !ok {
 		return nil

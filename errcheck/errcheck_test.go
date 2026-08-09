@@ -285,6 +285,61 @@ func main() {
 	})
 }
 
+func TestLocalFunctionExclude(t *testing.T) {
+	const testGoMod = `module example.com/localexclude
+
+go 1.25
+`
+	const testSource = `package localexclude
+
+func localFunction() error { return nil }
+
+func caller() {
+	localFunction()
+}
+`
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(path.Join(tmpDir, "go.mod"), []byte(testGoMod), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path.Join(tmpDir, "local.go"), []byte(testSource), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	origLoadPackages := loadPackages
+	t.Cleanup(func() { loadPackages = origLoadPackages })
+
+	loadPackages = func(cfg *packages.Config, paths ...string) ([]*packages.Package, error) {
+		cfg.Dir = tmpDir
+		return packages.Load(cfg, paths...)
+	}
+
+	check := func(t *testing.T, exclusions []string, want int) {
+		t.Helper()
+		checker := Checker{}
+		checker.Exclusions.Symbols = exclusions
+		pkgs, err := checker.LoadPackages("example.com/localexclude")
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := Result{}
+		for _, pkg := range pkgs {
+			result.Append(checker.CheckPackage(pkg))
+		}
+		result = result.Unique()
+		if got := len(result.UncheckedErrors); got != want {
+			t.Fatalf("got %d unchecked errors, want %d: %v", got, want, result.UncheckedErrors)
+		}
+	}
+
+	t.Run("detected", func(t *testing.T) {
+		check(t, nil, 1)
+	})
+	t.Run("excluded", func(t *testing.T) {
+		check(t, []string{"example.com/localexclude.localFunction"}, 0)
+	})
+}
+
 func TestIgnore(t *testing.T) {
 	const testVendorGoMod = `module github.com/testvendor
 
